@@ -12,12 +12,12 @@ auxtools = { path = "../auxtools/auxtools" }
 simple-logging = { version = "2.0.2" }
 log = { version = "0.4.14" }
 log-panics = { version = "2", features = ["with-backtrace"] }
-rayon = "1.5"
-rand = "0.8.3"
-measure_time = "0.6.0"
+rayon = "1.5.1"
+rand = "0.8.4"
+measure_time = "0.8.0"
 dmasm = { git = "https://github.com/ss220-space/dmasm", rev = "709231411c5a7c41a2f40440aea77b9b6552caa1" }
-inkwell = { git = "https://github.com/TheDan64/inkwell", default-features = false, branch = "master", features = ["llvm12-0", "target-x86"] }
-llvm-sys = "120"
+inkwell = { git = "https://github.com/TheDan64/inkwell", default-features = false, branch = "master", features = ["llvm13-0", "target-x86"] }
+llvm-sys = "130.0.0"
 libc = "0.2.97"
 typed-arena = "2.0.1"
 criterion = { version = "0.3.5", optional = true}
@@ -26,8 +26,8 @@ criterion = { version = "0.3.5", optional = true}
 test_common = { path = "test_common" }
 
 [build-dependencies]
-vergen = "5.1.17"
-anyhow = "1.0.47"
+vergen = "5.2.0"
+anyhow = "1.0.51"
 
 [lib]
 crate-type = ["cdylib"]

@@ -81,7 +81,7 @@ pub fn install_hooks() {
                             transmute_copy(&execution_engine.get_function_address(name).unwrap())
                         };
 
-                        log::info!("target is {} at {:?}", name, func as (*mut ()));
+                        log::info!("target is {} at {:?}", name, func as *mut ());
 
                         let proc_id_attrib = func_value.get_string_attribute(AttributeLoc::Function, "proc_id").unwrap();
                         // TODO: cleanup
