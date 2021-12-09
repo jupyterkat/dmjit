@@ -138,7 +138,7 @@ fn rotate_logs(from: &Path, num: u32) {
 }
 
 #[init(full)]
-pub fn log_init() {
+pub fn log_init() -> Result<(), String> {
     macro_rules! ver_string {
         () => {
             format!("{}-{} built on {}", env!("VERGEN_GIT_SEMVER"), env!("VERGEN_CARGO_PROFILE"), env!("VERGEN_BUILD_TIMESTAMP"))
@@ -158,8 +158,8 @@ pub fn log_init() {
 
     pads::deopt::initialize_deopt();
     pads::debug::init();
-
-    Value::from_string(format!("dmJIT init success, {}", ver_string!()))
+    
+    Ok(())
 }
 
 
