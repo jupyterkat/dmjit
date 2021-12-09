@@ -157,8 +157,7 @@ pub fn log_init() -> Result<(), String> {
     }
 
     pads::deopt::initialize_deopt();
-    pads::debug::init();
-    
+
     Ok(())
 }
 

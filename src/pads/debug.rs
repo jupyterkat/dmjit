@@ -21,12 +21,14 @@ pub extern "C" fn handle_debug_val(val: ValueRaw) {
 
 pub static mut DATUM_ARRAY_PTR : *mut *mut *mut u8 = std::ptr::null_mut();
 
-pub fn init() {
+#[init(full)]
+pub fn init() -> Result<(), String> {
     let scanner = auxtools::sigscan::Scanner::for_module(auxtools::BYONDCORE).unwrap();
 
     unsafe {
         DATUM_ARRAY_PTR = *((scanner.find(signature!("8b 15 ?? ?? ?? ?? 8b 14 82 85 d2 74 ad 8b 4a 18")).unwrap()).add(2) as *mut *mut *mut *mut u8);
     }
+    Ok(())
 }
 
 pub fn get_datum_ref_count(datum: Value) -> u32 {
