@@ -137,7 +137,7 @@ fn rotate_logs(from: &Path, num: u32) {
     }
 }
 
-#[hook("/proc/dmjit_hook_log_init")]
+#[init(full)]
 pub fn log_init() {
     macro_rules! ver_string {
         () => {
