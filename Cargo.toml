@@ -8,7 +8,7 @@ build = "build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-auxtools = { path = "../auxtools/auxtools" }
+auxtools = { git = "https://github.com/jupyterkat/auxtools", branch = "austation-aux"}
 simple-logging = { version = "2.0.2" }
 log = { version = "0.4.14" }
 log-panics = { version = "2", features = ["with-backtrace"] }
