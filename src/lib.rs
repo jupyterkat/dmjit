@@ -1,6 +1,9 @@
+
+/*
 #![feature(core_intrinsics)]
 #![feature(once_cell)]
 #![feature(asm)]
+*/
 
 mod compile;
 pub(crate) mod pads;
