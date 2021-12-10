@@ -26,7 +26,7 @@ criterion = { version = "0.3.5", optional = true}
 test_common = { path = "test_common" }
 
 [build-dependencies]
-vergen = "5.2.0"
+vergen = "6.0.0"
 anyhow = "1.0.51"
 
 #[lib]
