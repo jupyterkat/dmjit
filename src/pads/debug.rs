@@ -21,6 +21,7 @@ pub extern "C" fn handle_debug_val(val: ValueRaw) {
 
 pub static mut DATUM_ARRAY_PTR : *mut *mut *mut u8 = std::ptr::null_mut();
 
+/*
 #[init(full)]
 pub fn init() -> Result<(), String> {
     let scanner = auxtools::sigscan::Scanner::for_module(auxtools::BYONDCORE).unwrap();
@@ -30,6 +31,7 @@ pub fn init() -> Result<(), String> {
     }
     Ok(())
 }
+*/
 
 pub fn get_datum_ref_count(datum: Value) -> u32 {
     unsafe {
