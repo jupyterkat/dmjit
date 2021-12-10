@@ -133,6 +133,8 @@ impl ModuleContext<'static> {
         let context_ref = NonNull::from(&boxed.context);
 
         let module = unsafe { context_ref.as_ref() }.create_module("dmir");
+        // LINK IT IN YOU WANKER
+        inkwell::execution_engine::ExecutionEngine::link_in_mc_jit();
         let execution_engine = module.create_jit_execution_engine(OptimizationLevel::Default).unwrap();
 
 
