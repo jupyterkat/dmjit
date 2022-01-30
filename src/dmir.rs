@@ -1,13 +1,15 @@
-use auxtools::raw_types::procs::ProcId;
-use auxtools::raw_types::values::ValueTag;
-use dmasm::{Instruction, Node, DebugData};
-use dmasm::operands::{Variable, ValueOpRaw, Value};
-use std::ffi::CString;
 use std::borrow::Borrow;
+use std::ffi::CString;
+
 use auxtools::Proc;
+use auxtools::raw_types::procs::ProcId;
 use auxtools::raw_types::strings::StringId;
+use auxtools::raw_types::values::ValueTag;
+use dmasm::{DebugData, Instruction, Node};
+use dmasm::operands::{Value, ValueOpRaw, Variable};
 use inkwell::FloatPredicate;
-use crate::dmir::DMIR::CheckTypeDeopt;
+
+use crate::dmir::DMIR::{CheckTypeDeopt, EnterBlock};
 
 #[derive(Debug)]
 pub enum DMIR {
@@ -20,6 +22,7 @@ pub enum DMIR {
     GetCacheField(u32),
     SetCacheField(u32),
     PushCache,
+    ValueTagSwitch(ValueLocation, Box<Vec<(ValueTagPredicate, String)>>),
     FloatAdd,
     FloatSub,
     FloatMul,
@@ -27,6 +30,11 @@ pub enum DMIR {
     FloatCmp(inkwell::FloatPredicate),
     FloatAbs,
     RoundN,
+    ListCheckSizeDeopt(ValueLocation, ValueLocation, Box<DMIR>),
+    ListIndexedGet,
+    ListIndexedSet,
+    ListAssociativeGet,
+    ListAssociativeSet,
     PushInt(i32),
     PushVal(dmasm::operands::ValueOpRaw),
     PushTestFlag, // Push test flag value as Number
@@ -80,6 +88,8 @@ pub enum ValueLocation {
 }
 
 macro_rules! value_tag_pred {
+    (@any) => ({ ValueTagPredicate::Any });
+    (@nothing) => ({ ValueTagPredicate::Nothing });
     ($tag:expr) => ({ ValueTagPredicate::Tag($tag) });
     (@union $($tag:expr),+) => ({ ValueTagPredicate::Union(vec![$(value_tag_pred!($tag)),+]) });
 }
@@ -203,6 +213,27 @@ fn decode_float_aug_instruction(var: &Variable, action: DMIR, data: &DebugData, 
     decode_set_var(var, out);
 }
 
+fn decode_switch(value: ValueLocation, switch_id: &mut u32, cases: Vec<(ValueTagPredicate, Vec<DMIR>)>, out: &mut Vec<DMIR>) {
+    let switch_exit = format!("switch_{}_exit", switch_id);
+    let (predicates, blocks): (Vec<_>, Vec<_>) = cases.into_iter().unzip();
+    out.push(DMIR::ValueTagSwitch(value, Box::new(
+        predicates.into_iter().enumerate().map(
+            |(index, predicate)| (predicate, format!("switch_{}_case_{}", switch_id, index))
+        ).collect()
+    )));
+    let mut case_counter = 0;
+    for mut instructions in blocks {
+        out.push(EnterBlock(format!("switch_{}_case_{}", switch_id, case_counter)));
+        out.append(&mut instructions);
+        if !matches!(out.last(), Option::Some(DMIR::End)) {
+            out.push(DMIR::Jmp(switch_exit.clone()));
+        }
+        case_counter += 1;
+    }
+    out.push(EnterBlock(switch_exit));
+    *switch_id += 1;
+}
+
 pub fn decode_byond_bytecode(nodes: Vec<Node<DebugData>>, proc: Proc) -> Result<Vec<DMIR>, ()> {
     // output for intermediate operations sequence
     let mut irs = vec![];
@@ -213,11 +244,28 @@ pub fn decode_byond_bytecode(nodes: Vec<Node<DebugData>>, proc: Proc) -> Result<
     // needed for generating fallthrough jumps on EnterBlock
     let mut block_ended = false;
 
+    let mut switch_counter = 0;
+
+    macro_rules! type_switch {
+        (@stack $n:literal, $(($($check:tt)+) => $body:expr),+) => ({
+            let cases = vec![
+                $((value_tag_pred!($($check)+), $body)),+
+            ];
+            let mut block = Vec::new();
+            decode_switch(ValueLocation::Stack($n), &mut switch_counter, cases, &mut block);
+            block
+        });
+    }
+
     // generate DMIR sequence for each instruction in dm-asm
     for nd in nodes {
         match nd {
             // if node contains instruction
             dmasm::Node::Instruction(insn, data) => {
+                macro_rules! deopt {
+                    () => { DMIR::Deopt(data.offset, proc.id) };
+                    (@type_switch) => ( vec![deopt!(), DMIR::End] );
+                }
                 match insn {
                     // skip debug info for now
                     Instruction::DbgFile(_f) => {}
@@ -229,16 +277,32 @@ pub fn decode_byond_bytecode(nodes: Vec<Node<DebugData>>, proc: Proc) -> Result<
                         decode_set_var(&vr, &mut irs)
                     },
                     Instruction::Add => {
-                        build_float_bin_op_deopt(DMIR::FloatAdd, &data, &proc, &mut irs);
+                        irs.append(
+                            &mut type_switch!(
+                                @stack 1,
+                                (ValueTag::Number) =>
+                                    type_switch!(
+                                        @stack 0,
+                                        (@union ValueTag::Number, ValueTag::Null) => vec![DMIR::FloatAdd],
+                                        (@any) => deopt!(@type_switch)
+                                    ),
+                                (@any) => deopt!(@type_switch)
+                            )
+                        );
                     }
                     Instruction::Sub => {
-                        irs.push(CheckTypeDeopt(0, ValueTagPredicate::Tag(ValueTag::Number), Box::new(DMIR::Deopt(data.offset, proc.id))));
-                        irs.push(CheckTypeDeopt(
-                            1,
-                            value_tag_pred!(@union ValueTag::Number, ValueTag::Null),
-                            Box::new(DMIR::Deopt(data.offset, proc.id))
-                        ));
-                        irs.push(DMIR::FloatSub);
+                        irs.append(
+                            &mut type_switch!(
+                                @stack 1,
+                                (ValueTag::Number) =>
+                                    type_switch!(
+                                        @stack 0,
+                                        (@union ValueTag::Number, ValueTag::Null) => vec![DMIR::FloatSub],
+                                        (@any) => deopt!(@type_switch)
+                                    ),
+                                (@any) => deopt!(@type_switch)
+                            )
+                        );
                     }
                     Instruction::Mul => {
                         irs.push(CheckTypeDeopt(
@@ -276,6 +340,34 @@ pub fn decode_byond_bytecode(nodes: Vec<Node<DebugData>>, proc: Proc) -> Result<
                     }
                     Instruction::Abs => {
                         irs.push(DMIR::FloatAbs)
+                    }
+                    Instruction::ListGet => {
+                        irs.push(CheckTypeDeopt(
+                            1,
+                            value_tag_pred!(ValueTag::List),
+                            Box::new(DMIR::Deopt(data.offset, proc.id))
+                        ));
+                        irs.append(
+                            &mut type_switch!(
+                                @stack 0,
+                                (ValueTag::Number) => vec![DMIR::ListCheckSizeDeopt(ValueLocation::Stack(1), ValueLocation::Stack(0), Box::new(DMIR::Deopt(data.offset, proc.id))), DMIR::ListIndexedGet],
+                                (@any) => vec![DMIR::ListAssociativeGet]
+                            )
+                        );
+                    }
+                    Instruction::ListSet => {
+                        irs.push(CheckTypeDeopt(
+                            1,
+                            value_tag_pred!(ValueTag::List),
+                            Box::new(DMIR::Deopt(data.offset, proc.id))
+                        ));
+                        irs.append(
+                            &mut type_switch!(
+                                @stack 0,
+                                (ValueTag::Number) => vec![DMIR::ListCheckSizeDeopt(ValueLocation::Stack(1), ValueLocation::Stack(0), Box::new(DMIR::Deopt(data.offset, proc.id))), DMIR::ListIndexedSet],
+                                (@any) => vec![DMIR::ListAssociativeSet]
+                            )
+                        );
                     }
                     Instruction::CallGlob(arg_count, callee) => {
                         match callee.path.as_ref() {

@@ -1,15 +1,18 @@
-use crate::dmir::{DMIR, RefOpDisposition};
-use crate::ref_count::RValueDrain::{ConsumeDrain, DeoptDrain, MoveOutDrain};
+use std::borrow::{Borrow, BorrowMut};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
-use std::borrow::{Borrow, BorrowMut};
-use crate::ref_count::RValue::Phi;
-use std::cell::{RefCell};
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
+
 use typed_arena::Arena;
+
+use crate::dmir::{DMIR, RefOpDisposition};
+use crate::dmir::DMIR::ListCheckSizeDeopt;
 use crate::dmir::ValueLocation;
 use crate::dmir_annotate::Annotator;
+use crate::ref_count::RValue::Phi;
+use crate::ref_count::RValueDrain::{ConsumeDrain, DeoptDrain, MoveOutDrain};
 
 /// Denotes different types of value sources
 #[derive(Eq)]
@@ -307,6 +310,18 @@ impl<'t> Analyzer<'t> {
                     @produce @stack
                 );
             }
+            DMIR::ValueTagSwitch(_, cases) => {
+                for (_, block) in cases.as_ref() {
+                    Analyzer::merge_block(
+                        &self.stack,
+                        &self.cache,
+                        &self.locals,
+                        &self.values_arena,
+                        &mut self.phi_id,
+                        &mut self.blocks, block.clone())
+                }
+                self.block_ended = true;
+            }
             DMIR::FloatAdd | DMIR::FloatSub | DMIR::FloatMul | DMIR::FloatDiv | DMIR::RoundN => {
                 op_effect!(
                     @consume @stack,
@@ -338,6 +353,20 @@ impl<'t> Analyzer<'t> {
             }
             DMIR::Pop => {
                 op_effect!(@consume @stack);
+            }
+            DMIR::ListAssociativeGet | DMIR::ListIndexedGet => {
+                op_effect!(
+                    @consume @stack,
+                    @consume @stack,
+                    @produce @stack
+                );
+            }
+            DMIR::ListAssociativeSet | DMIR::ListIndexedSet => {
+                op_effect!(
+                    @consume @stack,
+                    @consume @stack,
+                    @move_out @stack
+                );
             }
             DMIR::Ret => {
                 unset_locals_and_cache!();
@@ -391,9 +420,12 @@ impl<'t> Analyzer<'t> {
                 for (value, local) in self.locals.iter() {
                     self.drains.push(DeoptDrain(pos, local, IncRefOp::Pre(ValueLocation::Local(value.clone()))));
                 }
+                self.block_ended = true;
             }
-            DMIR::CheckTypeDeopt(_, _, deopt) => {
-                self.analyze_instruction(pos, deopt.borrow())
+            DMIR::CheckTypeDeopt(_, _, deopt) | DMIR::ListCheckSizeDeopt(_, _, deopt) => {
+                let old_block_ended = self.block_ended;
+                self.analyze_instruction(pos, deopt.borrow());
+                self.block_ended = old_block_ended;
             }
             DMIR::CallProcById(_, _, arg_count) | DMIR::CallProcByName(_, _, arg_count) => {
                 op_effect!(@consume @stack);
@@ -403,7 +435,6 @@ impl<'t> Analyzer<'t> {
                 op_effect!(@move_in @stack);
             }
             DMIR::End => {
-                assert!(self.stack.is_empty());
                 unset_locals_and_cache!();
                 self.block_ended = true;
             }
@@ -708,7 +739,7 @@ pub fn generate_ref_count_operations(ir: &mut Vec<DMIR>) {
             DeoptDrain(pos, _, op) => {
                 let instruction = ir.get_mut(pos.clone()).unwrap();
                 match instruction {
-                    DMIR::CheckTypeDeopt(_, _, deopt) => {
+                    DMIR::CheckTypeDeopt(_, _, deopt) | DMIR::ListCheckSizeDeopt(_, _, deopt) => {
                         let mut tmp = DMIR::End;
                         std::mem::swap(deopt.borrow_mut(), &mut tmp);
                         *deopt.borrow_mut() = create_inc_ref_count_ir(tmp, op);

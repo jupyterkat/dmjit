@@ -110,7 +110,7 @@ pub fn guard<F: FnOnce() -> DMResult + UnwindSafe>(f: F) -> DMResult {
 }
 
 #[hook("/proc/dmjit_dump_call_count")]
-pub fn dump_call_count() {
+pub fn dump_call_count() -> DMResult {
     log::info!("Dump call count");
     if let Some(mut vec) = call_counts() {
         vec.sort_by_key(|h| -(h.count as i32));
@@ -159,6 +159,8 @@ pub fn log_init() -> Result<(), String> {
     auxtools::hooks::install_interceptor(intercept_proc_call);
 
     pads::deopt::initialize_deopt();
+    //pads::debug::init();
+    pads::lists::init();
 
     Ok(())
 }
@@ -231,7 +233,7 @@ pub fn chad_hook_by_id(proc_id: ProcId, hook: ByondProcFunc) {
 
 
 #[hook("/proc/dmjit_toggle_hooks")]
-pub fn toggle_hooks() {
+pub fn toggle_hooks() -> DMResult {
     unsafe {
         ENABLE_CHAD_HOOKS = !ENABLE_CHAD_HOOKS;
         return Ok(Value::from(ENABLE_CHAD_HOOKS))
@@ -240,7 +242,7 @@ pub fn toggle_hooks() {
 }
 
 #[hook("/proc/dmjit_toggle_call_counts")]
-pub fn toggle_call_counts() {
+pub fn toggle_call_counts() -> DMResult {
     unsafe {
         match CALL_COUNT {
             None => { CALL_COUNT = Option::Some(HashMap::new()) }
